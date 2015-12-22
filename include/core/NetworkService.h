@@ -7,30 +7,35 @@
 #ifndef NG_NETWORK_SERVICE_H_
 #define NG_NETWORK_SERVICE_H_
 
-#include <vector>
-#include <pcap/pcap.h>
+#include <vector>	/* for std::vector */
+#include <pcap/pcap.h>	/* for libpcap types */
 
-#include "Adapter.h"
+#include "Exception.h"	/* for netgazer::Exception */
+#include "Adapter.h"	/* for netgazer::Adapter */
 
 namespace netgazer {
 	class NetworkService {
 	/* constructors and destructor */
 	private:
-		NetworkService(char * errbuf);
+		NetworkService() throw (Exception);
 	public:
 		~NetworkService();
 
 	/* public methods */
 	public:
-		Adapter * nextAdapter();
+		Adapter * nextAdapter() throw (Exception);
+		Adapter * adapterBy(const char * name) throw (Exception);
+		Adapter * adapterBy(int index) throw (Exception);
+		void reset() throw (Exception);
 
 	/* public static methods */
 	public:
-		static NetworkService * instance(char * errbuf);
+		static NetworkService * instance() throw (Exception);
+		static void dispose();
 
 	/* fields */
 	private:
-		pcap_if_t * m_pcap_allAdapters;
+		pcap_if_t * m_pcap_all_adapters;
 		pcap_if_t * m_pcap_adapter;
 		std::vector<Adapter *> m_adapters;
 
@@ -39,7 +44,5 @@ namespace netgazer {
 		static NetworkService * ref;
 	};
 }
-
-static NetworkService * netgazer::NetworkService::ref = NULL;
 
 #endif /* NG_NETWORK_SERVICE_H_ */

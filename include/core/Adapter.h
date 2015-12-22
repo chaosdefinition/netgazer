@@ -7,31 +7,34 @@
 #ifndef NG_ADAPTER_H_
 #define NG_ADAPTER_H_
 
-#include <vector>
-#include <pcap/pcap.h>
+#include <deque>	/* for std::deque */
+#include <pcap/pcap.h>	/* for libpcap types */
 
-#include "Packet.h"
+#include "Exception.h"		/* for netgazer::Exception */
+#include "Packet.h"		/* for netgazer::Packet */
 
 namespace netgazer {
 	class Adapter {
 	/* constructors and destructor */
 	private:
-		Adapter(pcap_if_t * pcap_adapter);
+		Adapter(pcap_if_t * pcap_adapter) throw (Exception);
 	public:
 		~Adapter();
 
 	/* public methods */
 	public:
-		int open(bool promisc, char * errbuf);
+		void open(bool promisc, int timeout) throw (Exception);
 		void close();
-		int nextPacket(Packet ** packet);
+		Packet * nextPacket() throw (Exception);
+		const char * name() const throw (Exception);
+		const char * description() const throw (Exception);
 
 	/* fields */
 	private:
 		pcap_if_t * m_pcap_adapter;
 		pcap_t * m_pcap_handle;
 		bool m_promisc;
-		std::vector<Packet *> m_packets;
+		std::deque<Packet *> m_packets;
 
 	/* friend declarations */
 	friend class NetworkService;

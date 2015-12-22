@@ -2,11 +2,17 @@
  * implementation of class Adapter
  */
 
-#include <new>
+#include <deque>	/* for std::deque */
+#include <new>		/* for std::bad_alloc */
+#include <pcap/pcap.h>	/* for libpcap types and functions */
 
-#include "core/Adapter.h"
+#include "core/Adapter.h"	/* for netgazer::Adapter */
+#include "core/Exception.h"	/* for netgazer::Exception */
+#include "core/Packet.h"	/* for netgazer::Packet */
+#include "core/IPv4Packet.h"	/* for netgazer::IPv4Packet */
 
-using std::vector;
+using std::deque;
+using std::bad_alloc;
 
 namespace netgazer {
 	/*
@@ -14,8 +20,12 @@ namespace netgazer {
 	 *
 	 * @pcap_adapter: a pointer to pcap interface
 	 */
-	Adapter::Adapter(pcap_if_t * pcap_adapter)
+	Adapter::Adapter(pcap_if_t * pcap_adapter) throw (Exception)
 	{
+		if (pcap_adapter == NULL) {
+			throw Exception("pcap_adapter is NULL");
+		}
+
 		this->m_pcap_adapter = pcap_adapter;
 		this->m_pcap_handle = NULL;
 		this->m_promisc = false;
@@ -33,12 +43,12 @@ namespace netgazer {
 	 * open an adapter
 	 *
 	 * @promisc: whether to be put into promiscuous mode
-	 * @errbuf: buffer to hold error message
-	 *
-	 * return: 0 on success, -1 otherwise
+	 * @timeout: the read timeout in milliseconds
 	 */
-	int Adapter::open(bool promisc, char * errbuf)
+	void Adapter::open(bool promisc, int timeout) throw (Exception)
 	{
+		char errbuf[PCAP_ERRBUF_SIZE];
+
 		/* close first to make sure resources are deallocated */
 		this->close();
 
@@ -47,13 +57,12 @@ namespace netgazer {
 			this->m_pcap_adapter->name,	/* device name */
 			65536,				/* snapshot length */
 			promisc,			/* promiscuous mode */
-			0,				/* timeout */
+			timeout,			/* timeout */
 			errbuf);
 		if (this->m_pcap_handle == NULL) {
-			return -1;
+			throw Exception(errbuf);
 		}
 		this->m_promisc = promisc;
-		return 0;
 	}
 
 	/*
@@ -62,7 +71,7 @@ namespace netgazer {
 	void Adapter::close()
 	{
 		/* free all captured packets */
-		for (vector<Packet *>::iterator i = this->m_packets.begin();
+		for (deque<Packet *>::iterator i = this->m_packets.begin();
 			i != this->m_packets.end(); ++i) {
 			delete *i;
 		}
@@ -73,41 +82,85 @@ namespace netgazer {
 			pcap_close(this->m_pcap_handle);
 			this->m_pcap_handle = NULL;
 		}
+
+		this->m_promisc = false;
 	}
 
 	/*
 	 * get the next packet, it needs not to be freed by the caller
 	 *
-	 * @packet: a pointer to place to store the next packet
-	 *
-	 * return: 1 on success, 0 on timeout, -1 on error, -2 on EOF
+	 * return: a pointer to the next packet on success, NULL otherwise
 	 */
-	int Adapter::nextPacket(Packet ** packet)
+	Packet * Adapter::nextPacket() throw (Exception)
 	{
 		struct pcap_pkthdr * header = NULL;
 		const u_char * data = NULL;
+		Packet * p = NULL;
 		int ret = -1;
 
 		/* check first if the adapter is not opened */
 		if (this->m_pcap_handle == NULL) {
-			goto error;
+			throw Exception("adapter is not opened");
 		}
 
 		/* do get the next packet */
 		ret = pcap_next_ex(this->m_pcap_handle, &header, &data);
-		if (ret > 0) {
+		switch (ret) {
+		/* success */
+		case 1:
 			try {
-				*packet = new Packet(header, data);
-			} catch (std::bad_alloc & e) {
-				goto error;
+				if (Packet::isIpv4Packet(header, data)) {
+					p = new IPv4Packet(header, data);
+				} else {
+					p = new Packet(header, data);
+				}
+			} catch (bad_alloc & e) {
+				throw Exception(e.what());
 			}
+			this->m_packets.push_back(p);
+			/* keep a maximum size of 100 */
+			if (this->m_packets.size() >= 100) {
+				delete this->m_packets.front();
+				this->m_packets.pop_front();
+			}
+			/* fall-through */
 
-			this->m_packets.push_back(*packet);
-			return ret;
+		/* timeout or EOF */
+		case 0: case -2:
+			return p;
+
+		/* error */
+		case -1:
+			throw Exception(pcap_geterr(this->m_pcap_handle));
+
+		default:
+			throw Exception("pcap error");
 		}
+	}
 
-	error:
-		*packet = NULL;
-		return ret;
+	/*
+	 * get the adapter name
+	 *
+	 * return: name of this Adapter
+	 */
+	const char * Adapter::name() const throw (Exception)
+	{
+		if (this->m_pcap_adapter != NULL) {
+			return this->m_pcap_adapter->name;
+		}
+		throw Exception("pcap_adapter is NULL");
+	}
+
+	/*
+	 * get the adapter description
+	 *
+	 * return: description of this Adapter
+	 */
+	const char * Adapter::description() const throw (Exception)
+	{
+		if (this->m_pcap_adapter != NULL) {
+			return this->m_pcap_adapter->description;
+		}
+		throw Exception("pcap_adapter is NULL");
 	}
 }
